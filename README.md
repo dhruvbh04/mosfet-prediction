@@ -22,33 +22,39 @@ The `mosfet_prediction.ipynb` notebook clones this repository directly to load t
 
 The end-to-end workflow is implemented in the Jupyter notebook and follows these key steps:
 
-1.  **Data Loading:** Loads all `*.json` simulation files from the MESD dataset. One faulty file (`N180A-pmos1.json`) is skipped. Also only devices with Process Corner = tt (Typical-Typical) are filtered and used.
-2.  **Label Extraction:** The "ground truth" $V_{th}$ for each curve is extracted using the **2nd Derivative Method*, which finds the $V_{GS}$ at a predefined current ($I_{D} = 10^{-7} A$).
-3.  **Target Normalization:** To make the model device-agnostic, the extracted $V_{th}$ is converted into a normalized **Threshold Ratio ($R_{th}$)** between 0 and 1. This $R_{th}$ serves as the target variable (label) for the ML models.
+1.  **Data Loading & Filtering:** * Loads `*.json` simulation files from the MESD dataset.
+    * Filters data to include only devices with Process Corner = `tt` (Typical-Typical).
+    * Removes curves that are flat lines or invalid.
+2.  **Label Extraction:** * The "ground truth" $V_{th}$ for each curve is extracted using the **2nd Derivative Method**, which finds the peak of the second derivative of $log(I_D)$ with respect to $V_{GS}$.
+3.  **Target Normalization:** * To make the model agnostic to specific voltage sweeps, the extracted $V_{th}$ is converted into a normalized **Threshold Ratio ($R_{th}$)** between 0 and 1.
     $$R_{th} = \frac{V_{th} - V_{G,min}}{V_{G,max} - V_{G,min}}$$
-4.  **Feature Engineering (Dual Normalization):** The $I_{D}-V_{G}$ input curves are processed into a fixed-length feature vector:
-    * The $V_{GS}$ axis is linearly normalized to a [0, 1] range.
-    * The $log_{10}(|I_{D}|)$ is taken.
-    * The curve is **resampled to a 50-point vector** via linear interpolation.
-    * This 50-point vector is min-max scaled to [0, 1] to create the final feature vector.
-5.  **Model Training:** The processed dataset (102,800 valid curves) is split into 70% training and 30% testing sets. Two models are trained:
-    * **k-Nearest Neighbors (kNN) Regressor** ($n\_neighbors=5$)
-    * **Decision Tree Regressor** ($max\_depth=10$)
-6.  **Reconstruction:** A function is provided to predict $R_{th}$ from a feature vector and then convert it back to the physical $V_{th}$ using the device's $V_{GS}$ range.
+4.  **Feature Engineering:** * The $I_{D}-V_{G}$ input curves are processed into a fixed-length feature vector of **50 points**.
+    * $V_{GS}$ is normalized to [0, 1].
+    * Current is transformed to $log_{10}(|I_{D}|)$ and interpolated to a fixed axis.
+    * The resulting vector is min-max scaled.
+5.  **Device-Specific Training:** * The dataset is split by **Device Type** (NMOS and PMOS).
+    * Separate models are trained for each device type to maximize accuracy.
+    * Algorithms used: **k-Nearest Neighbors (kNN)** and **Decision Tree Regressor**.
+6.  **Prediction & Denormalization:** * The system predicts the ratio $R_{th}$ and mathematically converts it back to the physical voltage $V_{th}$ using the input curve's voltage range.
 
 ---
 
 ## Results
 
-The kNN model demonstrated superior performance and generalization compared to the Decision Tree.
+The dataset was split into 70% training and 30% testing. The **k-Nearest Neighbors (kNN)** model consistently outperformed the Decision Tree across both device types.
 
-| Model | RMSE | MAE | R² (Coefficient of Determination) |
-| :--- | :--- | :--- | :--- |
-| **k-Nearest Neighbors** | **0.0210** | **0.0042** | **0.9972** |
-| Decision Tree | 0.0331 | 0.0140 | 0.9930 |
-*(Metrics based on predicting the normalized Rth on the 30% test set).*
+### Performance Metrics (Test Set)
 
+| Device Type | Model | RMSE | MAE | $R^2$ Score |
+| :--- | :--- | :--- | :--- | :--- |
+| **NMOS** | **kNN** | **0.0214** | **0.0039** | **0.9669** |
+| NMOS | Decision Tree | 0.0364 | 0.0136 | 0.9040 |
+| **PMOS** | **kNN** | **0.0207** | **0.0043** | **0.9675** |
+| PMOS | Decision Tree | 0.0339 | 0.0133 | 0.9126 |
 
+### Validation
+A random sample validation of 100 curves was performed using the trained kNN models.
+* **Accuracy:** 95% of predictions were within a tolerance of **0.001 V (1 mV)** of the calculated ground truth.
 
 ---
 
@@ -58,9 +64,14 @@ The kNN model demonstrated superior performance and generalization compared to t
     ```bash
     pip install numpy pandas scikit-learn matplotlib
     ```
-2.  **Notebook:** Open and run the `mosfet_prediction.ipynb` notebook (e.g., in Jupyter or Google Colab).
-3.  **Data:** The notebook will automatically clone the MESD dataset from GitHub when you run the data loading cell.
-4.  **Execution:** Run all cells sequentially to load data, preprocess features, train the models, and visualize the results.
+2.  **Notebook:** Open and run the `mosfet_prediction_universal.ipynb` notebook (e.g., in Jupyter or Google Colab).
+3.  **Data:** The notebook handles data acquisition automatically by cloning the MESD repository.
+4.  **Execution:** Run all cells sequentially. The notebook will:
+    * Preprocess the data.
+    * Train separate models for NMOS and PMOS.
+    * Output accuracy metrics.
+    * Visualize predicted vs. actual values.
+    * Run a random sampling validation test.
 
 ---
 
